@@ -1,21 +1,21 @@
 /*
-	MWScore Transponder 2017
-	R-Team Robotics Version
+  MWScore Transponder 2017
+  R-Team Robotics Version
   
-	XBEE setup:
-	ATBD = 5 (38400bps)
-	ATID = 6200
-	MY   = 6200 + TRANSPONDER_ID
-	DL   = 6201
-	CH   = c
-	
-	Scoring Receiver XBEE setup (Send Broadcast message)
-	ATBD = 5 (38400bps)
-	ATID = 6200
-	MY   = 6201
-	DL   = FFFF
-	DH   = 0
-	CH   = c
+  XBEE setup:
+  ATBD = 5 (38400bps)
+  ATID = 6200
+  MY   = 6200 + TRANSPONDER_ID
+  DL   = 6201
+  CH   = c
+  
+  Scoring Receiver XBEE setup (Send Broadcast message)
+  ATBD = 5 (38400bps)
+  ATID = 6200
+  MY   = 6201
+  DL   = FFFF
+  DH   = 0
+  CH   = c
 */ 
 
 #include <TimerOne.h>
@@ -127,9 +127,10 @@ void setup() {
   delay(50);
 }
 
+uint8_t r_ptr = 0;
+
 void loop() {
   uint32_t delayms = 0;
-  byte receive[4];
   uint8_t oldhitpoint = 0;
 
   // update ID when changed
@@ -139,21 +140,45 @@ void loop() {
   // Scoring Receiver sends broadcast message to set HP
   // If no message default is 20 HP
   // Receive message 0x55 ID 255-ID HP RULES
-  if (Serial.available() > 0) {
-    Serial.readBytes(receive,5);
-    if(receive[0] == 0x55) {
-      if((receive[1] == id) && ((receive[1] + receive[2]) == 255)) {
-        hitpoint = (int)receive[3];
-        rules = (int)receive[4];
+  while (Serial.available() > 0) {
+    uint8_t rc = Serial.read();
+    switch (r_ptr) {
+      case 0:
+        if (rc != 0x55) {
+          continue;
+        }
+        break;
+      case 1:
+        if (rc != id) {
+          r_ptr = 0;
+          continue;
+        }
+        break;
+      case 2:
+        if (rc != ~id) {
+          r_ptr = 0;
+          continue;
+        }
+        break;
+      case 3:
+        hitpoint = rc;
+        rules = 0;
         tphit[0] = 0;
         tphit[1] = 0;
         tphit[2] = 0;
         tphit[3] = 0;
-      }
+        break;
+      case 4:
+        rules = rc;
+        break;
+    }
+    ++r_ptr;
+    if (r_ptr == 5) {
+      r_ptr = 0;
     }
   }
   
-  if ((hit != 0) && (hitpoint > 0)) {		
+  if ((hit != 0) && (hitpoint > 0)) {   
     // determine panel that was hit
     if ((hit & PANELMASK) == PANEL1) {
       delayms = MS_SIGNAL * 1;
@@ -183,10 +208,10 @@ void loop() {
       lasthittime = millis();
       
       if (rules == 1) {
-        // increase hit count on panel counter
-        tphit[panel-1]++;
-        // decrease hitpoints if panel is hit less than max			
+        // decrease hitpoints if panel is hit less than max     
         if(tphit[panel-1] <= MAX_PANEL_HIT) {
+          // increase hit count on panel counter
+          tphit[panel-1]++;
           hitpoint--;
         }
       }
@@ -203,7 +228,7 @@ void loop() {
         // delay and reset hit output
         delay(delayms);
         digitalWrite(hiti, LOW);
-			
+      
         // blink LED board 3 times
         for (int x = 0; x < 3; x++)
         {
