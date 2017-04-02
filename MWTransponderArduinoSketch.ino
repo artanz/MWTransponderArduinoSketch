@@ -56,7 +56,7 @@ volatile uint8_t panel = 0;
 uint8_t id;
 
 // Optional rules variables
-volatile uint8_t tphit[4];
+volatile uint8_t tphit[5];
 volatile uint32_t lasthittime = 0;
 volatile uint32_t curenttime = 0;
 
@@ -84,6 +84,30 @@ int sw4 = A4;
 int sw5 = A5;
 int sw6 = A6;
 int sw7 = A7;
+
+void hittp1() {
+  hit = PANEL1;
+}
+
+void hittp2() {
+  hit = PANEL2;
+}
+
+void hittp3() {
+  hit = PANEL3;
+}
+
+void hittp4() {
+  hit = PANEL4;
+}
+
+volatile bool toTransmit = false;
+
+void ISRTimer1(){
+  // tx hit packet
+  toTransmit = true;
+}
+
 
 void setup() {
   pinMode(hiti, OUTPUT);
@@ -119,6 +143,7 @@ void setup() {
   tphit[1] = 0;
   tphit[2] = 0;
   tphit[3] = 0;
+  tphit[4] = 0;
 
   // set up interrupt to send HP status message
   delay(50);
@@ -127,10 +152,20 @@ void setup() {
   delay(50);
 }
 
-uint8_t r_ptr = 0;
+void maybetransmit() {
+  if (toTransmit) {
+    toTransmit = false;
+    Serial.write((uint8_t) 0x55);
+    Serial.write((uint8_t) id);
+    Serial.write((uint8_t) (0xff - id));
+    Serial.write((uint8_t) panel);
+    Serial.write((uint8_t) hitpoint);
+  }
+}
 
 void loop() {
   uint32_t delayms = 0;
+  byte receive[5];
   uint8_t oldhitpoint = 0;
 
   // update ID when changed
@@ -141,42 +176,23 @@ void loop() {
   // If no message default is 20 HP
   // Receive message 0x55 ID 255-ID HP RULES
   while (Serial.available() > 0) {
-    uint8_t rc = Serial.read();
-    switch (r_ptr) {
-      case 0:
-        if (rc != 0x55) {
-          continue;
-        }
-        break;
-      case 1:
-        if (rc != id) {
-          r_ptr = 0;
-          continue;
-        }
-        break;
-      case 2:
-        if (rc != ~id) {
-          r_ptr = 0;
-          continue;
-        }
-        break;
-      case 3:
-        hitpoint = rc;
-        rules = 0;
+    digitalWrite(hitu, HIGH);
+    uint8_t key = Serial.read();
+    if (key == 0x55) {
+      receive[0] = 0xff;
+      Serial.readBytes((char *)&receive[1], 4);
+      if((receive[1] == id) && ((receive[1] + receive[2]) == 255)) {
+        hitpoint = (int)receive[3];
+        rules = (int)receive[4];
         tphit[0] = 0;
         tphit[1] = 0;
         tphit[2] = 0;
         tphit[3] = 0;
-        break;
-      case 4:
-        rules = rc;
-        break;
-    }
-    ++r_ptr;
-    if (r_ptr == 5) {
-      r_ptr = 0;
+        tphit[4] = 0;
+      }
     }
   }
+  digitalWrite(hitu, LOW);
   
   if ((hit != 0) && (hitpoint > 0)) {   
     // determine panel that was hit
@@ -228,17 +244,22 @@ void loop() {
         // delay and reset hit output
         delay(delayms);
         digitalWrite(hiti, LOW);
-      
+        maybetransmit();
+			
         // blink LED board 3 times
         for (int x = 0; x < 3; x++)
         {
           digitalWrite(hitu, HIGH);
           delay(LED_RATE);
+          maybetransmit();
           digitalWrite(hitu, LOW);
           delay(LED_RATE);
+          maybetransmit();
         }
         // delay for the remaining cooldown period
-        delay(MS_COOLDOWN - LED_PERIOD - delayms);
+        while (millis() - lasthittime < 1000) {
+          maybetransmit();
+        }
       }
     }
     
@@ -251,10 +272,9 @@ void loop() {
   // Optional Healing Rule
   if (rules == 2) {
     curenttime = millis();
-    if (((curenttime - lasthittime) > HEALING_RATE) && (hitpoint < HEALING_HP_THRESHOLD))  {
+    if (((curenttime - lasthittime) > HEALING_RATE) && (hitpoint < HEALING_HP_THRESHOLD)) {
       // increment HP
       hitpoint++;
-
       // reset time since last hit
       lasthittime = millis();
     }
@@ -263,36 +283,11 @@ void loop() {
   // leave LED on board when dead
   if (hitpoint == 0) {
     digitalWrite(hitu, HIGH);
-    }
-  else {
+  } else {
     digitalWrite(hitu, LOW);
   }
-}
 
-void ISRTimer1(){
-  // tx hit packet
-  Serial.write((uint8_t) 0x55);
-  Serial.write((uint8_t) id);
-  Serial.write((uint8_t) (0xff - id));
-  Serial.write((uint8_t) panel);
-  Serial.write((uint8_t) hitpoint);
+    maybetransmit();
 }
-
-void hittp1() {
-  hit = PANEL1;
-}
-
-void hittp2() {
-  hit = PANEL2;
-}
-
-void hittp3() {
-  hit = PANEL3;
-}
-
-void hittp4() {
-  hit = PANEL4;
-}
-
 
 
