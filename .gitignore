@@ -49,3 +49,5 @@ Temporary Items
 *.hex
 *.o
 build-uno
+*.0
+*.swp

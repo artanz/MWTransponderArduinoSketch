@@ -183,12 +183,17 @@ void loop() {
   // If no message default is 20 HP
   // Receive message 0x55 ID 255-ID HP RULES
   while (Serial.available() > 0) {
-    digitalWrite(hitu, HIGH);
     uint8_t key = Serial.read();
     if (key == 0x55) {
-      receive[0] = 0xff;
-      Serial.readBytes((char *)&receive[1], 4);
-      if((receive[1] == id) && ((receive[1] + receive[2]) == 255)) {
+      receive[0] = 0x55;
+      int p = 1;
+      long when = millis();
+      while ((p < 5) && (millis() - when) < 1000) {
+        if (Serial.available()) {
+          receive[p++] = Serial.read();
+        }
+      }
+      if((p == 5) && (receive[1] == id) && ((receive[1] + receive[2]) == 255)) {
         hitpoint = (int)receive[3];
         rules = (int)receive[4];
         tphit[0] = 0;
@@ -196,10 +201,20 @@ void loop() {
         tphit[2] = 0;
         tphit[3] = 0;
         tphit[4] = 0;
+        for (int i = 0; i != 4; ++i) {
+          digitalWrite(hitu, HIGH);
+          delay(20);
+          digitalWrite(hitu, LOW);
+          delay(70);
+        }
+      } else {
+        // something went wrong -- let someone know
+        digitalWrite(hitu, HIGH);
+        delay(100);
+        digitalWrite(hitu, LOW);
       }
     }
   }
-  digitalWrite(hitu, LOW);
   
   if ((hit != 0) && (hitpoint > 0)) {   
     // determine panel that was hit
