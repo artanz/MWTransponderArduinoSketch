@@ -207,6 +207,7 @@ void loop() {
           digitalWrite(hitu, LOW);
           delay(70);
         }
+        digitalWrite(hiti, LOW);
       } else {
         // something went wrong -- let someone know
         digitalWrite(hitu, HIGH);
