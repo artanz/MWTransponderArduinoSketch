@@ -145,11 +145,18 @@ void setup() {
   tphit[3] = 0;
   tphit[4] = 0;
 
+  // blink LED board 3 times
+  for (int x = 0; x < 3; x++)
+  {
+    digitalWrite(hitu, HIGH);
+    delay(LED_RATE);
+    digitalWrite(hitu, LOW);
+    delay(LED_RATE);
+  }
+
   // set up interrupt to send HP status message
-  delay(50);
   Timer1.initialize(TimerMS);
   Timer1.attachInterrupt(ISRTimer1);
-  delay(50);
 }
 
 void maybetransmit() {
