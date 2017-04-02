@@ -305,6 +305,8 @@ void loop() {
   // leave LED on board when dead
   if (hitpoint == 0) {
     digitalWrite(hitu, HIGH);
+    //  let the 'mech know that the game is over
+    digitalWrite(hiti, HIGH);
   } else {
     digitalWrite(hitu, LOW);
   }
