@@ -1,21 +1,21 @@
 /*
-	MWScore Transponder 2017
-	R-Team Robotics Version
+  MWScore Transponder 2017
+  R-Team Robotics Version
   
-	XBEE setup:
-	ATBD = 5 (38400bps)
-	ATID = 6200
-	MY   = 6200 + TRANSPONDER_ID
-	DL   = 6201
-	CH   = c
-	
-	Scoring Receiver XBEE setup (Send Broadcast message)
-	ATBD = 5 (38400bps)
-	ATID = 6200
-	MY   = 6201
-	DL   = FFFF
-	DH   = 0
-	CH   = c
+  XBEE setup:
+  ATBD = 5 (38400bps)
+  ATID = 6200
+  MY   = 6200 + TRANSPONDER_ID
+  DL   = 6201
+  CH   = c
+  
+  Scoring Receiver XBEE setup (Send Broadcast message)
+  ATBD = 5 (38400bps)
+  ATID = 6200
+  MY   = 6201
+  DL   = FFFF
+  DH   = 0
+  CH   = c
 */ 
 
 #include <TimerOne.h>
@@ -56,7 +56,7 @@ volatile uint8_t panel = 0;
 uint8_t id;
 
 // Optional rules variables
-volatile uint8_t tphit[4];
+volatile uint8_t tphit[5];
 volatile uint32_t lasthittime = 0;
 volatile uint32_t curenttime = 0;
 
@@ -84,6 +84,30 @@ int sw4 = A4;
 int sw5 = A5;
 int sw6 = A6;
 int sw7 = A7;
+
+void hittp1() {
+  hit = PANEL1;
+}
+
+void hittp2() {
+  hit = PANEL2;
+}
+
+void hittp3() {
+  hit = PANEL3;
+}
+
+void hittp4() {
+  hit = PANEL4;
+}
+
+volatile bool toTransmit = false;
+
+void ISRTimer1(){
+  // tx hit packet
+  toTransmit = true;
+}
+
 
 void setup() {
   pinMode(hiti, OUTPUT);
@@ -119,17 +143,36 @@ void setup() {
   tphit[1] = 0;
   tphit[2] = 0;
   tphit[3] = 0;
+  tphit[4] = 0;
+
+  // blink LED board 3 times
+  for (int x = 0; x < 3; x++)
+  {
+    digitalWrite(hitu, HIGH);
+    delay(LED_RATE);
+    digitalWrite(hitu, LOW);
+    delay(LED_RATE);
+  }
 
   // set up interrupt to send HP status message
-  delay(50);
   Timer1.initialize(TimerMS);
   Timer1.attachInterrupt(ISRTimer1);
-  delay(50);
+}
+
+void maybetransmit() {
+  if (toTransmit) {
+    toTransmit = false;
+    Serial.write((uint8_t) 0x55);
+    Serial.write((uint8_t) id);
+    Serial.write((uint8_t) (0xff - id));
+    Serial.write((uint8_t) panel);
+    Serial.write((uint8_t) hitpoint);
+  }
 }
 
 void loop() {
   uint32_t delayms = 0;
-  byte receive[4];
+  byte receive[5];
   uint8_t oldhitpoint = 0;
 
   // update ID when changed
@@ -139,21 +182,42 @@ void loop() {
   // Scoring Receiver sends broadcast message to set HP
   // If no message default is 20 HP
   // Receive message 0x55 ID 255-ID HP RULES
-  if (Serial.available() > 0) {
-    Serial.readBytes(receive,5);
-    if(receive[0] == 0x55) {
-      if((receive[1] == id) && ((receive[1] + receive[2]) == 255)) {
+  while (Serial.available() > 0) {
+    uint8_t key = Serial.read();
+    if (key == 0x55) {
+      receive[0] = 0x55;
+      int p = 1;
+      long when = millis();
+      while ((p < 5) && (millis() - when) < 1000) {
+        if (Serial.available()) {
+          receive[p++] = Serial.read();
+        }
+      }
+      if((p == 5) && (receive[1] == id) && ((receive[1] + receive[2]) == 255)) {
         hitpoint = (int)receive[3];
         rules = (int)receive[4];
         tphit[0] = 0;
         tphit[1] = 0;
         tphit[2] = 0;
         tphit[3] = 0;
+        tphit[4] = 0;
+        for (int i = 0; i != 4; ++i) {
+          digitalWrite(hitu, HIGH);
+          delay(20);
+          digitalWrite(hitu, LOW);
+          delay(70);
+        }
+        digitalWrite(hiti, LOW);
+      } else {
+        // something went wrong -- let someone know
+        digitalWrite(hitu, HIGH);
+        delay(100);
+        digitalWrite(hitu, LOW);
       }
     }
   }
   
-  if ((hit != 0) && (hitpoint > 0)) {		
+  if ((hit != 0) && (hitpoint > 0)) {   
     // determine panel that was hit
     if ((hit & PANELMASK) == PANEL1) {
       delayms = MS_SIGNAL * 1;
@@ -183,10 +247,10 @@ void loop() {
       lasthittime = millis();
       
       if (rules == 1) {
-        // increase hit count on panel counter
-        tphit[panel-1]++;
-        // decrease hitpoints if panel is hit less than max			
+        // decrease hitpoints if panel is hit less than max     
         if(tphit[panel-1] <= MAX_PANEL_HIT) {
+          // increase hit count on panel counter
+          tphit[panel-1]++;
           hitpoint--;
         }
       }
@@ -203,17 +267,22 @@ void loop() {
         // delay and reset hit output
         delay(delayms);
         digitalWrite(hiti, LOW);
+        maybetransmit();
 			
         // blink LED board 3 times
         for (int x = 0; x < 3; x++)
         {
           digitalWrite(hitu, HIGH);
           delay(LED_RATE);
+          maybetransmit();
           digitalWrite(hitu, LOW);
           delay(LED_RATE);
+          maybetransmit();
         }
         // delay for the remaining cooldown period
-        delay(MS_COOLDOWN - LED_PERIOD - delayms);
+        while (millis() - lasthittime < 1000) {
+          maybetransmit();
+        }
       }
     }
     
@@ -226,10 +295,9 @@ void loop() {
   // Optional Healing Rule
   if (rules == 2) {
     curenttime = millis();
-    if (((curenttime - lasthittime) > HEALING_RATE) && (hitpoint < HEALING_HP_THRESHOLD))  {
+    if (((curenttime - lasthittime) > HEALING_RATE) && (hitpoint < HEALING_HP_THRESHOLD)) {
       // increment HP
       hitpoint++;
-
       // reset time since last hit
       lasthittime = millis();
     }
@@ -238,36 +306,13 @@ void loop() {
   // leave LED on board when dead
   if (hitpoint == 0) {
     digitalWrite(hitu, HIGH);
-    }
-  else {
+    //  let the 'mech know that the game is over
+    digitalWrite(hiti, HIGH);
+  } else {
     digitalWrite(hitu, LOW);
   }
-}
 
-void ISRTimer1(){
-  // tx hit packet
-  Serial.write((uint8_t) 0x55);
-  Serial.write((uint8_t) id);
-  Serial.write((uint8_t) (0xff - id));
-  Serial.write((uint8_t) panel);
-  Serial.write((uint8_t) hitpoint);
+    maybetransmit();
 }
-
-void hittp1() {
-  hit = PANEL1;
-}
-
-void hittp2() {
-  hit = PANEL2;
-}
-
-void hittp3() {
-  hit = PANEL3;
-}
-
-void hittp4() {
-  hit = PANEL4;
-}
-
 
 
